@@ -88,6 +88,10 @@ type ClubhouseChanges struct {
 		New *time.Time `json:"new,omitempty"`
 		Old *time.Time `json:"old,omitempty"`
 	} `json:"deadline,omitempty"`
+	EpicID *struct {
+		New *int `json:"new,omitempty"`
+		Old *int `json:"old,omitempty"`
+	} `json:"epic_id,omitempty"`
 	Estimate *struct {
 		New *int `json:"new,omitempty"`
 		Old *int `json:"old,omitempty"`
@@ -103,10 +107,18 @@ type ClubhouseChanges struct {
 		Adds    []int `json:"adds"`
 		Removes []int `json:"removes"`
 	} `json:"label_ids,omitempty"`
+	OwnerIds *struct {
+		Adds    []string `json:"adds"`
+		Removes []string `json:"removes"`
+	} `json:"owner_ids,omitempty"`
 	Position *struct {
 		New int64 `json:"new"`
 		Old int64 `json:"old"`
 	} `json:"position,omitempty"`
+	ProjectID *struct {
+		New int `json:"new"`
+		Old int `json:"old"`
+	} `json:"project_id,omitempty"`
 	Started *struct {
 		New bool `json:"new"`
 		Old bool `json:"old"`
@@ -114,6 +126,10 @@ type ClubhouseChanges struct {
 	StartedAt *struct {
 		New time.Time `json:"new"`
 	} `json:"started_at,omitempty"`
+	StoryType *struct {
+		New string `json:"new"`
+		Old string `json:"old"`
+	} `json:"story_type,omitempty"`
 	Text *struct {
 		New string `json:"new"`
 		Old string `json:"old"`
@@ -155,9 +171,7 @@ func toDiscord(clubhouseApiClient *ClubhouseApiClient, webhook ClubhouseWebhook)
 	var webhookTitle string
 	var webhookURL string
 	var fields []Field
-
-	// Defaults to #FFFFFF (white)
-	colour := 16777215
+	var colour int
 
 	member, err := clubhouseApiClient.GetMember(webhook.MemberID)
 	if err != nil {
@@ -191,7 +205,10 @@ func toDiscord(clubhouseApiClient *ClubhouseApiClient, webhook ClubhouseWebhook)
 		}
 	case "update":
 		colour = 16440084
-		fields = getChangesFields(referencesByTypeID, firstAction.Changes)
+		fields, err = getChangesFields(clubhouseApiClient, referencesByTypeID, firstAction.Changes)
+		if err != nil {
+			return nil, err
+		}
 
 		if len(fields) == 0 {
 			return nil, nil
@@ -238,7 +255,7 @@ func F(w http.ResponseWriter, r *http.Request) {
 	if contentType := r.Header.Get("Content-Type"); r.Method != "POST" || contentType != "application/json" {
 		log.Printf("\ninvalid method / content-type: %s / %s \n", r.Method, contentType)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("invalid request"))
+		_, _ = w.Write([]byte("invalid request"))
 		return
 	}
 
@@ -255,7 +272,10 @@ func F(w http.ResponseWriter, r *http.Request) {
 		}
 
 		mac := hmac.New(sha256.New, []byte(strings.TrimSpace(clubhouseWebhookSecret)))
-		mac.Write(data)
+		_, err = mac.Write(data)
+		if err != nil {
+			log.Fatalln(err)
+		}
 		expectedMAC := mac.Sum(nil)
 
 		clubhouseHexSignature, err := hex.DecodeString(clubhouseSignature)
@@ -266,7 +286,7 @@ func F(w http.ResponseWriter, r *http.Request) {
 		if !hmac.Equal(clubhouseHexSignature, expectedMAC) {
 			log.Printf("\nsignature does not match: %s (got) != %s (want) \n", hex.EncodeToString(clubhouseHexSignature), hex.EncodeToString(expectedMAC))
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("invalid request"))
+			_, _ = w.Write([]byte("invalid request"))
 			return
 		}
 	}
@@ -281,7 +301,7 @@ func F(w http.ResponseWriter, r *http.Request) {
 	if webhook.Version != "v1" {
 		log.Println("version not supported:", webhook.Version)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("invalid request"))
+		_, _ = w.Write([]byte("invalid request"))
 		return
 	}
 
@@ -320,7 +340,10 @@ func F(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(discordWebhook)
+	err = json.NewEncoder(w).Encode(discordWebhook)
+	if err != nil {
+		log.Fatalln(err)
+	}
 }
 
 func getActionsByID(webhook ClubhouseWebhook) map[string]ClubhouseAction {
@@ -416,7 +439,11 @@ func getActionFields(referencesByTypeID map[string]ClubhouseReference, action Cl
 	return fields
 }
 
-func getChangesFields(referencesByTypeID map[string]ClubhouseReference, changes ClubhouseChanges) []Field {
+func getChangesFields(
+	clubhouseApiClient *ClubhouseApiClient,
+	referencesByTypeID map[string]ClubhouseReference,
+	changes ClubhouseChanges,
+) ([]Field, error) {
 	var fields []Field
 
 	if changes.Deadline != nil {
@@ -431,6 +458,33 @@ func getChangesFields(referencesByTypeID map[string]ClubhouseReference, changes 
 		fields = append(fields, Field{
 			Name:  "Deadline",
 			Value: fmt.Sprintf("%s -> %s", oldDeadline, newDeadline),
+		})
+	}
+
+	if changes.EpicID != nil {
+		oldEpicValue := "None"
+		if changes.EpicID.Old != nil {
+			oldEpicTypeID := fmt.Sprintf("%s:%d", "epic", *changes.EpicID.Old)
+			oldEpic, ok := referencesByTypeID[oldEpicTypeID]
+			if ok {
+				oldEpicValue = oldEpic.Name
+			} else {
+				oldEpicValue = "Unknown"
+			}
+		}
+		newEpicValue := "None"
+		if changes.EpicID.New != nil {
+			newEpicTypeID := fmt.Sprintf("%s:%d", "epic", *changes.EpicID.New)
+			newEpic, ok := referencesByTypeID[newEpicTypeID]
+			if ok {
+				newEpicValue = newEpic.Name
+			} else {
+				newEpicValue = "Unknown"
+			}
+		}
+		fields = append(fields, Field{
+			Name:  "Epic",
+			Value: fmt.Sprintf("%s -> %s", oldEpicValue, newEpicValue),
 		})
 	}
 
@@ -476,6 +530,106 @@ func getChangesFields(referencesByTypeID map[string]ClubhouseReference, changes 
 		})
 	}
 
+	if changes.LabelIds != nil {
+		if len(changes.LabelIds.Adds) > 0 {
+			labelsAdded := make([]string, len(changes.LabelIds.Adds))
+			for i, labelID := range changes.LabelIds.Adds {
+				labelTypeID := fmt.Sprintf("%s:%d", "label", labelID)
+				label, ok := referencesByTypeID[labelTypeID]
+				if ok {
+					labelsAdded[i] = label.Name
+				}
+			}
+
+			if len(labelsAdded) > 0 {
+				fields = append(fields, Field{
+					Name:  "Label(s) Added",
+					Value: strings.Join(labelsAdded, ", "),
+				})
+			}
+		}
+
+		if len(changes.LabelIds.Removes) > 0 {
+			labelsRemoved := make([]string, len(changes.LabelIds.Removes))
+			for i, labelID := range changes.LabelIds.Removes {
+				labelTypeID := fmt.Sprintf("%s:%d", "label", labelID)
+				label, ok := referencesByTypeID[labelTypeID]
+				if ok {
+					labelsRemoved[i] = label.Name
+				}
+			}
+
+			if len(labelsRemoved) > 0 {
+				fields = append(fields, Field{
+					Name:  "Label(s) Removed",
+					Value: strings.Join(labelsRemoved, ", "),
+				})
+			}
+		}
+	}
+
+	if changes.OwnerIds != nil {
+		if len(changes.OwnerIds.Adds) > 0 {
+			ownersAdded := make([]string, len(changes.OwnerIds.Adds))
+			for i, ownerID := range changes.OwnerIds.Adds {
+				member, err := clubhouseApiClient.GetMember(ownerID)
+				if err != nil {
+					return []Field{}, err
+				}
+				ownersAdded[i] = member.Profile.Name
+			}
+
+			fields = append(fields, Field{
+				Name:  "Owner(s) Added",
+				Value: strings.Join(ownersAdded, ", "),
+			})
+		}
+
+		if len(changes.OwnerIds.Removes) > 0 {
+			ownersRemoved := make([]string, len(changes.OwnerIds.Removes))
+			for i, ownerID := range changes.OwnerIds.Removes {
+				member, err := clubhouseApiClient.GetMember(ownerID)
+				if err != nil {
+					return []Field{}, err
+				}
+				ownersRemoved[i] = member.Profile.Name
+			}
+
+			fields = append(fields, Field{
+				Name:  "Owner(s) Removed",
+				Value: strings.Join(ownersRemoved, ", "),
+			})
+		}
+	}
+
+	if changes.ProjectID != nil {
+		oldProjectValue := "Unknown"
+		oldProjectTypeID := fmt.Sprintf("%s:%d", "project", changes.ProjectID.Old)
+		oldProject, ok := referencesByTypeID[oldProjectTypeID]
+		if ok {
+			oldProjectValue = oldProject.Name
+		}
+
+		newProjectValue := "Unknown"
+		newProjectTypeID := fmt.Sprintf("%s:%d", "project", changes.ProjectID.New)
+		newProject, ok := referencesByTypeID[newProjectTypeID]
+		if ok {
+			newProjectValue = newProject.Name
+		}
+
+		fields = append(fields, Field{
+			Name:  "Project",
+			Value: fmt.Sprintf("%s -> %s", oldProjectValue, newProjectValue),
+		})
+	}
+
+	if changes.StoryType != nil {
+		fields = append(fields, Field{
+			Name:  "Type",
+			Value: strings.Title(fmt.Sprintf("%s -> %s", changes.StoryType.Old, changes.StoryType.New)),
+		})
+	}
+
 	if changes.Text != nil && changes.Text.Old != changes.Text.New {
 		fields = append(fields, Field{
 			Name: "Description",
@@ -501,9 +655,9 @@ func getChangesFields(referencesByTypeID map[string]ClubhouseReference, changes 
 
 		fields = append(fields, Field{
 			Name:  "State",
-			Value: fmt.Sprintf("%s -> %s", oldWorkflowStateValue, newWorkflowStateValue),
+			Value: strings.Title(fmt.Sprintf("%s -> %s", oldWorkflowStateValue, newWorkflowStateValue)),
 		})
 	}
 
-	return fields
+	return fields, nil
 }
