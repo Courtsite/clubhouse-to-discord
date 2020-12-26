@@ -173,24 +173,7 @@ func toDiscord(clubhouseApiClient *ClubhouseApiClient, webhook ClubhouseWebhook)
 	var fields []Field
 	var colour int
 
-	member, err := clubhouseApiClient.GetMember(webhook.MemberID)
-	if err != nil {
-		return nil, err
-	}
-
 	firstAction := webhook.Actions[0]
-	if firstAction.Action != "" && firstAction.EntityType != "" && firstAction.Name != "" {
-		webhookTitle = fmt.Sprintf(
-			"%s %sd %s: %s",
-			strings.Title(member.Profile.Name),
-			firstAction.Action,
-			firstAction.EntityType,
-			strings.Title(firstAction.Name),
-		)
-	}
-	if firstAction.AppURL != "" {
-		webhookURL = firstAction.AppURL
-	}
 
 	// actionsByID := getActionsByID(webhook)
 	referencesByTypeID := getReferencesByTypeID(webhook)
@@ -205,7 +188,7 @@ func toDiscord(clubhouseApiClient *ClubhouseApiClient, webhook ClubhouseWebhook)
 		}
 	case "update":
 		colour = 16440084
-		fields, err = getChangesFields(clubhouseApiClient, referencesByTypeID, firstAction.Changes)
+		fields, err := getChangesFields(clubhouseApiClient, referencesByTypeID, firstAction.Changes)
 		if err != nil {
 			return nil, err
 		}
@@ -217,6 +200,33 @@ func toDiscord(clubhouseApiClient *ClubhouseApiClient, webhook ClubhouseWebhook)
 		colour = 16065069
 	default:
 		return nil, nil
+	}
+
+	if firstAction.Action != "" && firstAction.EntityType != "" && firstAction.Name != "" {
+		if webhook.MemberID != "" {
+			member, err := clubhouseApiClient.GetMember(webhook.MemberID)
+			if err != nil {
+				return nil, err
+			}
+
+			webhookTitle = fmt.Sprintf(
+				"%s %sd %s: %s",
+				strings.Title(member.Profile.Name),
+				firstAction.Action,
+				firstAction.EntityType,
+				strings.Title(firstAction.Name),
+			)
+		} else {
+			webhookTitle = fmt.Sprintf(
+				"%sd %s: %s",
+				strings.Title(firstAction.Action),
+				firstAction.EntityType,
+				strings.Title(firstAction.Name),
+			)
+		}
+	}
+	if firstAction.AppURL != "" {
+		webhookURL = firstAction.AppURL
 	}
 
 	if webhookTitle == "" || webhookURL == "" {
