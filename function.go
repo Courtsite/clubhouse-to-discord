@@ -214,14 +214,14 @@ func toDiscord(clubhouseApiClient *ClubhouseApiClient, webhook ClubhouseWebhook)
 				strings.Title(member.Profile.Name),
 				firstAction.Action,
 				firstAction.EntityType,
-				strings.Title(firstAction.Name),
+				firstAction.Name,
 			)
 		} else {
 			webhookTitle = fmt.Sprintf(
 				"%sd %s: %s",
 				strings.Title(firstAction.Action),
 				firstAction.EntityType,
-				strings.Title(firstAction.Name),
+				firstAction.Name,
 			)
 		}
 	}
