@@ -178,6 +178,8 @@ func toDiscord(clubhouseApiClient *ClubhouseApiClient, webhook ClubhouseWebhook)
 	// actionsByID := getActionsByID(webhook)
 	referencesByTypeID := getReferencesByTypeID(webhook)
 
+	var err error
+
 	switch firstAction.Action {
 	case "create":
 		colour = 5424154
@@ -188,7 +190,7 @@ func toDiscord(clubhouseApiClient *ClubhouseApiClient, webhook ClubhouseWebhook)
 		}
 	case "update":
 		colour = 16440084
-		fields, err := getChangesFields(clubhouseApiClient, referencesByTypeID, firstAction.Changes)
+		fields, err = getChangesFields(clubhouseApiClient, referencesByTypeID, firstAction.Changes)
 		if err != nil {
 			return nil, err
 		}
