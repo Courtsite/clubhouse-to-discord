@@ -1,5 +1,7 @@
 # clubhouse-to-discord
 
+**This project is no longer maintained, and has been replaced with https://github.com/Courtsite/shortcut-to-teams**
+
 📝 A simple Google Cloud Function in Go to transform / proxy [Clubhouse](https://clubhouse.io/) (Project Management) webhooks to [Discord](https://discordapp.com/).
 
 _This project is still under development, and it does not handle many cases. It has been tested with the Go 1.13 runtime._
